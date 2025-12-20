@@ -6,12 +6,15 @@ import { WaitingQueue } from './simulation/WaitingQueue';
 import { ParkingArea } from './simulation/ParkingArea';
 import { EventLog } from './simulation/EventLog';
 import { Legend } from './simulation/Legend';
+import { CarDetailsPanel } from './simulation/CarDetailsPanel';
 
 export function ParkingSimulation() {
   const {
     state,
     addCar,
     removeCar,
+    removeCarFromSlot,
+    removeFromQueue,
     toggleRunning,
     reset,
     setSpeed,
@@ -19,6 +22,10 @@ export function ParkingSimulation() {
     toggleChaosMode,
     toggleStepMode,
     step,
+    autoSpawn,
+    toggleAutoSpawn,
+    selectedCar,
+    selectCar,
   } = useSimulation(5);
 
   return (
@@ -37,6 +44,7 @@ export function ParkingSimulation() {
               capacity={state.capacity}
               chaosMode={state.chaosMode}
               stepMode={state.stepMode}
+              autoSpawn={autoSpawn}
               onToggleRunning={toggleRunning}
               onReset={reset}
               onAddCar={addCar}
@@ -45,6 +53,7 @@ export function ParkingSimulation() {
               onCapacityChange={setCapacity}
               onToggleChaosMode={toggleChaosMode}
               onToggleStepMode={toggleStepMode}
+              onToggleAutoSpawn={toggleAutoSpawn}
               onStep={step}
               parkedCount={state.parkedCars.length}
               waitingCount={state.waitingCars.length}
@@ -59,12 +68,27 @@ export function ParkingSimulation() {
 
           {/* Center - Main Simulation */}
           <main className="lg:col-span-6 space-y-4">
-            <WaitingQueue cars={state.waitingCars} />
+            <WaitingQueue 
+              cars={state.waitingCars}
+              onRemoveCar={removeFromQueue}
+              onSelectCar={selectCar}
+              selectedCarId={selectedCar?.id}
+            />
             <ParkingArea
               capacity={state.capacity}
               parkedCars={state.parkedCars}
               exitingCars={state.exitingCars}
+              onRemoveCarFromSlot={removeCarFromSlot}
+              onSelectCar={selectCar}
+              selectedCarId={selectedCar?.id}
             />
+
+            {selectedCar && (
+              <CarDetailsPanel 
+                car={selectedCar} 
+                onClose={() => selectCar(null)} 
+              />
+            )}
           </main>
 
           {/* Right Panel - Event Log */}
@@ -76,10 +100,13 @@ export function ParkingSimulation() {
         {/* Footer */}
         <footer className="text-center text-xs text-muted-foreground pt-4 border-t border-border">
           <p>
-            <strong className="text-primary">Producer:</strong> Cars entering the parking •{' '}
-            <strong className="text-primary">Consumer:</strong> Cars exiting the parking •{' '}
-            <strong className="text-primary">Mutex:</strong> Gate access control •{' '}
-            <strong className="text-primary">Semaphores:</strong> Slot availability tracking
+            <strong className="text-primary">Producer:</strong> Cars entering •{' '}
+            <strong className="text-primary">Consumer:</strong> Cars exiting •{' '}
+            <strong className="text-primary">Mutex:</strong> Gate lock •{' '}
+            <strong className="text-primary">Semaphores:</strong> Slot counters
+          </p>
+          <p className="mt-1 opacity-60">
+            Click on cars and slots to interact • Hover for details • Toggle chaos mode to see race conditions
           </p>
         </footer>
       </div>

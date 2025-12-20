@@ -5,6 +5,7 @@ export interface Car {
   state: CarState;
   slotIndex?: number;
   color: string;
+  name?: string;
 }
 
 export interface Semaphores {
