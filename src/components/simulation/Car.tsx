@@ -1,16 +1,25 @@
 import { Car as CarType } from '@/types/simulation';
-import { Car as CarIcon } from 'lucide-react';
+import { Car as CarIcon, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface CarProps {
   car: CarType;
   size?: 'sm' | 'md' | 'lg';
+  onClick?: () => void;
+  onRemove?: () => void;
+  isSelected?: boolean;
 }
 
 const sizeClasses = {
-  sm: 'w-8 h-8',
-  md: 'w-12 h-12',
-  lg: 'w-16 h-16',
+  sm: 'w-10 h-10',
+  md: 'w-14 h-14',
+  lg: 'w-20 h-20',
+};
+
+const iconSizes = {
+  sm: 'w-5 h-5',
+  md: 'w-8 h-8',
+  lg: 'w-12 h-12',
 };
 
 const stateDescriptions = {
@@ -21,7 +30,7 @@ const stateDescriptions = {
   exiting: 'Car is leaving the parking',
 };
 
-export function CarComponent({ car, size = 'md' }: CarProps) {
+export function CarComponent({ car, size = 'md', onClick, onRemove, isSelected }: CarProps) {
   const getStateClasses = () => {
     switch (car.state) {
       case 'entering':
@@ -31,7 +40,7 @@ export function CarComponent({ car, size = 'md' }: CarProps) {
       case 'blocked':
         return 'animate-pulse-glow';
       case 'parked':
-        return 'animate-car-park';
+        return '';
       case 'exiting':
         return 'animate-car-exit';
       default:
@@ -57,26 +66,60 @@ export function CarComponent({ car, size = 'md' }: CarProps) {
       <TooltipTrigger asChild>
         <div
           className={`
+            relative group
             ${sizeClasses[size]}
             ${getStateClasses()}
-            ${getGlowClass()}
+            ${isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''}
             flex items-center justify-center
-            rounded-lg
+            rounded-xl
             transition-all duration-300
             cursor-pointer
             hover:scale-110
+            hover:z-10
+            border-2
           `}
-          style={{ backgroundColor: car.color + '20', borderColor: car.color }}
+          style={{ 
+            backgroundColor: car.color + '20', 
+            borderColor: car.color,
+            boxShadow: `0 0 15px ${car.color}40`
+          }}
+          onClick={onClick}
         >
           <CarIcon
-            className={`${size === 'sm' ? 'w-5 h-5' : size === 'md' ? 'w-7 h-7' : 'w-10 h-10'}`}
+            className={`${iconSizes[size]} transition-transform group-hover:scale-110`}
             style={{ color: car.color }}
           />
+          
+          {/* Remove button for waiting cars */}
+          {onRemove && car.state === 'waiting' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+
+          {/* Name label */}
+          {car.name && size !== 'sm' && (
+            <span 
+              className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] font-mono whitespace-nowrap"
+              style={{ color: car.color }}
+            >
+              {car.name}
+            </span>
+          )}
         </div>
       </TooltipTrigger>
       <TooltipContent className="glass-panel border-border">
-        <p className="font-mono text-xs">{car.id.slice(0, 12)}...</p>
-        <p className="text-sm mt-1">{stateDescriptions[car.state]}</p>
+        <div className="space-y-1">
+          <p className="font-semibold" style={{ color: car.color }}>{car.name || 'Car'}</p>
+          <p className="text-xs text-muted-foreground">{stateDescriptions[car.state]}</p>
+          <p className="font-mono text-xs opacity-60">{car.id.slice(0, 16)}...</p>
+        </div>
       </TooltipContent>
     </Tooltip>
   );

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Car, Semaphores, SimulationEvent, SimulationState, CarState } from '@/types/simulation';
+import { toast } from 'sonner';
 
 const CAR_COLORS = [
   '#00d9ff', // cyan
@@ -12,9 +13,14 @@ const CAR_COLORS = [
   '#ff7f50', // coral
 ];
 
-const generateCarId = () => `car-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+const CAR_NAMES = [
+  'Tesla', 'BMW', 'Audi', 'Mercedes', 'Porsche', 'Ferrari', 
+  'Lambo', 'Ford', 'Honda', 'Toyota', 'Mazda', 'Subaru'
+];
 
+const generateCarId = () => `car-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 const getRandomColor = () => CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
+const getRandomName = () => CAR_NAMES[Math.floor(Math.random() * CAR_NAMES.length)];
 
 export function useSimulation(initialCapacity = 5) {
   const [state, setState] = useState<SimulationState>({
@@ -35,8 +41,12 @@ export function useSimulation(initialCapacity = 5) {
     stepMode: false,
   });
 
+  const [autoSpawn, setAutoSpawn] = useState(false);
+  const [selectedCar, setSelectedCar] = useState<Car | null>(null);
+
   const processingRef = useRef(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const autoSpawnRef = useRef<NodeJS.Timeout | null>(null);
 
   const addEvent = useCallback((
     type: 'wait' | 'signal',
@@ -77,12 +87,16 @@ export function useSimulation(initialCapacity = 5) {
         if (parkedCars.length < capacity) {
           const slotIndex = parkedCars.length;
           const updatedCar: Car = { ...nextCar, state: 'parked', slotIndex };
+          toast.success(`${nextCar.name} parked (CHAOS!)`, { duration: 1500 });
           
           return {
             ...prev,
             waitingCars: waitingCars.slice(1),
             parkedCars: [...parkedCars, updatedCar],
           };
+        } else {
+          // Race condition - car tries to park but slot is taken!
+          toast.error(`Race condition! ${nextCar.name} crashed!`, { duration: 2000 });
         }
         return prev;
       }
@@ -92,6 +106,7 @@ export function useSimulation(initialCapacity = 5) {
         // No slots available, car stays blocked
         if (nextCar.state !== 'blocked') {
           addEvent('wait', 'empty', nextCar.id, true);
+          toast.warning(`${nextCar.name} blocked - parking full!`, { duration: 1500 });
           const updatedWaiting = waitingCars.map((c, i) => 
             i === 0 ? { ...c, state: 'blocked' as CarState } : c
           );
@@ -121,6 +136,7 @@ export function useSimulation(initialCapacity = 5) {
       }
 
       const updatedCar: Car = { ...nextCar, state: 'parked', slotIndex };
+      toast.success(`${nextCar.name} parked in P${slotIndex + 1}`, { duration: 1500 });
 
       // signal(mutex) - release lock
       addEvent('signal', 'mutex', nextCar.id);
@@ -145,11 +161,15 @@ export function useSimulation(initialCapacity = 5) {
   }, [addEvent]);
 
   const addCar = useCallback(() => {
+    const name = getRandomName();
     const newCar: Car = {
       id: generateCarId(),
       state: 'waiting',
       color: getRandomColor(),
+      name,
     };
+
+    toast.info(`${name} joined the queue`, { duration: 1000 });
 
     setState(prev => ({
       ...prev,
@@ -157,37 +177,33 @@ export function useSimulation(initialCapacity = 5) {
     }));
   }, []);
 
-  const removeCar = useCallback(() => {
+  const removeCarFromSlot = useCallback((slotIndex: number) => {
     setState(prev => {
       const { parkedCars, semaphores, chaosMode } = prev;
       
-      if (parkedCars.length === 0) return prev;
+      const carToRemove = parkedCars.find(c => c.slotIndex === slotIndex);
+      if (!carToRemove) return prev;
 
-      const exitingCar = parkedCars[0];
-      const updatedCar: Car = { ...exitingCar, state: 'exiting' };
+      const updatedCar: Car = { ...carToRemove, state: 'exiting' };
+      toast.info(`${carToRemove.name} leaving P${slotIndex + 1}`, { duration: 1500 });
 
       if (!chaosMode) {
-        // wait(full)
-        addEvent('wait', 'full', exitingCar.id);
-        // wait(mutex)
-        addEvent('wait', 'mutex', exitingCar.id);
-        // signal(mutex)
-        addEvent('signal', 'mutex', exitingCar.id);
-        // signal(empty)
-        addEvent('signal', 'empty', exitingCar.id);
+        addEvent('wait', 'full', carToRemove.id);
+        addEvent('wait', 'mutex', carToRemove.id);
+        addEvent('signal', 'mutex', carToRemove.id);
+        addEvent('signal', 'empty', carToRemove.id);
       }
 
-      // Remove exiting car after animation
       setTimeout(() => {
         setState(p => ({
           ...p,
-          exitingCars: p.exitingCars.filter(c => c.id !== exitingCar.id),
+          exitingCars: p.exitingCars.filter(c => c.id !== carToRemove.id),
         }));
       }, 800);
 
       return {
         ...prev,
-        parkedCars: parkedCars.slice(1),
+        parkedCars: parkedCars.filter(c => c.id !== carToRemove.id),
         exitingCars: [...prev.exitingCars, updatedCar],
         semaphores: chaosMode ? semaphores : {
           mutex: 1,
@@ -198,14 +214,53 @@ export function useSimulation(initialCapacity = 5) {
     });
   }, [addEvent]);
 
+  const removeCar = useCallback(() => {
+    setState(prev => {
+      const { parkedCars } = prev;
+      if (parkedCars.length === 0) return prev;
+      const firstCar = parkedCars[0];
+      return prev;
+    });
+
+    // Use the slot-based removal
+    const firstParked = state.parkedCars[0];
+    if (firstParked?.slotIndex !== undefined) {
+      removeCarFromSlot(firstParked.slotIndex);
+    }
+  }, [state.parkedCars, removeCarFromSlot]);
+
+  const removeFromQueue = useCallback((carId: string) => {
+    setState(prev => {
+      const car = prev.waitingCars.find(c => c.id === carId);
+      if (car) {
+        toast.info(`${car.name} left the queue`, { duration: 1000 });
+      }
+      return {
+        ...prev,
+        waitingCars: prev.waitingCars.filter(c => c.id !== carId),
+      };
+    });
+  }, []);
+
   const toggleRunning = useCallback(() => {
-    setState(prev => ({ ...prev, isRunning: !prev.isRunning }));
+    setState(prev => {
+      const newIsRunning = !prev.isRunning;
+      if (newIsRunning) {
+        toast.success('Simulation started', { duration: 1000 });
+      } else {
+        toast.info('Simulation paused', { duration: 1000 });
+      }
+      return { ...prev, isRunning: newIsRunning };
+    });
   }, []);
 
   const reset = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (autoSpawnRef.current) clearInterval(autoSpawnRef.current);
+    setAutoSpawn(false);
+    setSelectedCar(null);
+    toast.info('Simulation reset', { duration: 1000 });
+    
     setState(prev => ({
       cars: [],
       parkedCars: [],
@@ -241,16 +296,39 @@ export function useSimulation(initialCapacity = 5) {
   }, []);
 
   const toggleChaosMode = useCallback(() => {
-    setState(prev => ({ ...prev, chaosMode: !prev.chaosMode }));
+    setState(prev => {
+      const newChaosMode = !prev.chaosMode;
+      if (newChaosMode) {
+        toast.error('CHAOS MODE ENABLED!', { duration: 2000 });
+      } else {
+        toast.success('Semaphores restored', { duration: 1500 });
+      }
+      return { ...prev, chaosMode: newChaosMode };
+    });
   }, []);
 
   const toggleStepMode = useCallback(() => {
-    setState(prev => ({ ...prev, stepMode: !prev.stepMode }));
+    setState(prev => ({ ...prev, stepMode: !prev.stepMode, isRunning: false }));
+  }, []);
+
+  const toggleAutoSpawn = useCallback(() => {
+    setAutoSpawn(prev => {
+      if (!prev) {
+        toast.success('Auto-spawn enabled', { duration: 1000 });
+      } else {
+        toast.info('Auto-spawn disabled', { duration: 1000 });
+      }
+      return !prev;
+    });
   }, []);
 
   const step = useCallback(() => {
     processQueue();
   }, [processQueue]);
+
+  const selectCar = useCallback((car: Car | null) => {
+    setSelectedCar(car);
+  }, []);
 
   // Auto-process queue when running
   useEffect(() => {
@@ -272,10 +350,34 @@ export function useSimulation(initialCapacity = 5) {
     };
   }, [state.isRunning, state.speed, state.stepMode, processQueue]);
 
+  // Auto-spawn cars
+  useEffect(() => {
+    if (autoSpawnRef.current) {
+      clearInterval(autoSpawnRef.current);
+    }
+
+    if (autoSpawn) {
+      const interval = 3000 / state.speed;
+      autoSpawnRef.current = setInterval(() => {
+        if (state.waitingCars.length < 8) {
+          addCar();
+        }
+      }, interval);
+    }
+
+    return () => {
+      if (autoSpawnRef.current) {
+        clearInterval(autoSpawnRef.current);
+      }
+    };
+  }, [autoSpawn, state.speed, state.waitingCars.length, addCar]);
+
   return {
     state,
     addCar,
     removeCar,
+    removeCarFromSlot,
+    removeFromQueue,
     toggleRunning,
     reset,
     setSpeed,
@@ -283,5 +385,9 @@ export function useSimulation(initialCapacity = 5) {
     toggleChaosMode,
     toggleStepMode,
     step,
+    autoSpawn,
+    toggleAutoSpawn,
+    selectedCar,
+    selectCar,
   };
 }
