@@ -61,3 +61,5 @@ export const EventLog = forwardRef<HTMLDivElement, EventLogProps>(function Event
     </div>
   );
 });
+
+EventLog.displayName = 'EventLog';
