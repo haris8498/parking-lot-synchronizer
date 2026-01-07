@@ -7,6 +7,7 @@ import { ParkingArea } from './simulation/ParkingArea';
 import { EventLog } from './simulation/EventLog';
 import { Legend } from './simulation/Legend';
 import { CarDetailsPanel } from './simulation/CarDetailsPanel';
+import { StatsDashboard } from './simulation/StatsDashboard';
 
 export function ParkingSimulation() {
   const {
@@ -91,8 +92,14 @@ export function ParkingSimulation() {
             )}
           </main>
 
-          {/* Right Panel - Event Log */}
-          <aside className="lg:col-span-3">
+          {/* Right Panel - Stats & Event Log */}
+          <aside className="lg:col-span-3 space-y-4">
+            <StatsDashboard 
+              stats={state.stats}
+              currentParked={state.parkedCars.length}
+              currentWaiting={state.waitingCars.length}
+              capacity={state.capacity}
+            />
             <EventLog events={state.events} />
           </aside>
         </div>

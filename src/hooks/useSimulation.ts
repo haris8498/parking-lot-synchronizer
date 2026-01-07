@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Car, Semaphores, SimulationEvent, SimulationState, CarState } from '@/types/simulation';
+import { Car, SimulationEvent, SimulationState, CarState, SimulationStats } from '@/types/simulation';
 import { toast } from 'sonner';
 
 const CAR_COLORS = [
@@ -22,6 +22,16 @@ const generateCarId = () => `car-${Date.now()}-${Math.random().toString(36).subs
 const getRandomColor = () => CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
 const getRandomName = () => CAR_NAMES[Math.floor(Math.random() * CAR_NAMES.length)];
 
+const initialStats: SimulationStats = {
+  totalCarsParked: 0,
+  totalCarsExited: 0,
+  totalBlockingEvents: 0,
+  totalWaitTime: 0,
+  carsWithWaitTime: 0,
+  peakOccupancy: 0,
+  chaosCollisions: 0,
+};
+
 export function useSimulation(initialCapacity = 5) {
   const [state, setState] = useState<SimulationState>({
     cars: [],
@@ -39,6 +49,7 @@ export function useSimulation(initialCapacity = 5) {
     speed: 1,
     chaosMode: false,
     stepMode: false,
+    stats: { ...initialStats },
   });
 
   const [autoSpawn, setAutoSpawn] = useState(false);
@@ -73,7 +84,7 @@ export function useSimulation(initialCapacity = 5) {
     processingRef.current = true;
 
     setState(prev => {
-      const { waitingCars, parkedCars, semaphores, capacity, chaosMode } = prev;
+      const { waitingCars, parkedCars, semaphores, capacity, chaosMode, stats } = prev;
       
       if (waitingCars.length === 0) {
         processingRef.current = false;
@@ -81,6 +92,7 @@ export function useSimulation(initialCapacity = 5) {
       }
 
       const nextCar = waitingCars[0];
+      const now = Date.now();
       
       if (chaosMode) {
         // In chaos mode, cars try to park without proper synchronization
@@ -91,13 +103,22 @@ export function useSimulation(initialCapacity = 5) {
         }
         
         if (slotIndex < capacity) {
-          const updatedCar: Car = { ...nextCar, state: 'parked', slotIndex };
+          const waitTime = nextCar.joinedQueueAt ? now - nextCar.joinedQueueAt : 0;
+          const updatedCar: Car = { ...nextCar, state: 'parked', slotIndex, parkedAt: now };
           toast.success(`${nextCar.name} parked (CHAOS!)`, { duration: 1500 });
           
+          const newParkedCount = parkedCars.length + 1;
           return {
             ...prev,
             waitingCars: waitingCars.slice(1),
             parkedCars: [...parkedCars, updatedCar],
+            stats: {
+              ...stats,
+              totalCarsParked: stats.totalCarsParked + 1,
+              totalWaitTime: stats.totalWaitTime + waitTime,
+              carsWithWaitTime: stats.carsWithWaitTime + 1,
+              peakOccupancy: Math.max(stats.peakOccupancy, newParkedCount),
+            },
           };
         } else {
           // Race condition - car tries to park but slot is taken!
@@ -106,6 +127,10 @@ export function useSimulation(initialCapacity = 5) {
           return {
             ...prev,
             waitingCars: [blockedCar, ...waitingCars.slice(1)],
+            stats: {
+              ...stats,
+              chaosCollisions: stats.chaosCollisions + 1,
+            },
           };
         }
       }
@@ -115,7 +140,8 @@ export function useSimulation(initialCapacity = 5) {
       
       if (availableSlots <= 0) {
         // No slots available, car stays/becomes blocked
-        if (nextCar.state !== 'blocked') {
+        const isNewlyBlocked = nextCar.state !== 'blocked';
+        if (isNewlyBlocked) {
           addEvent('wait', 'empty', nextCar.id, true);
           toast.warning(`${nextCar.name} blocked - parking full!`, { duration: 1500 });
         }
@@ -124,7 +150,14 @@ export function useSimulation(initialCapacity = 5) {
           i === 0 ? { ...c, state: 'blocked' as CarState } : c
         );
         processingRef.current = false;
-        return { ...prev, waitingCars: updatedWaiting };
+        return { 
+          ...prev, 
+          waitingCars: updatedWaiting,
+          stats: isNewlyBlocked ? {
+            ...stats,
+            totalBlockingEvents: stats.totalBlockingEvents + 1,
+          } : stats,
+        };
       }
 
       // Slots available - if car was blocked, it can now proceed
@@ -151,7 +184,8 @@ export function useSimulation(initialCapacity = 5) {
         return prev;
       }
 
-      const updatedCar: Car = { ...nextCar, state: 'parked', slotIndex };
+      const waitTime = nextCar.joinedQueueAt ? now - nextCar.joinedQueueAt : 0;
+      const updatedCar: Car = { ...nextCar, state: 'parked', slotIndex, parkedAt: now };
       toast.success(`${nextCar.name} parked in P${slotIndex + 1}`, { duration: 1500 });
 
       // signal(mutex) - release lock
@@ -160,6 +194,7 @@ export function useSimulation(initialCapacity = 5) {
       // signal(full) - increment full
       addEvent('signal', 'full', nextCar.id);
 
+      const newParkedCount = parkedCars.length + 1;
       processingRef.current = false;
       return {
         ...prev,
@@ -169,6 +204,13 @@ export function useSimulation(initialCapacity = 5) {
           mutex: 1,
           empty: Math.max(0, semaphores.empty - 1),
           full: Math.min(capacity, semaphores.full + 1),
+        },
+        stats: {
+          ...stats,
+          totalCarsParked: stats.totalCarsParked + 1,
+          totalWaitTime: stats.totalWaitTime + waitTime,
+          carsWithWaitTime: stats.carsWithWaitTime + 1,
+          peakOccupancy: Math.max(stats.peakOccupancy, newParkedCount),
         },
       };
     });
@@ -183,6 +225,7 @@ export function useSimulation(initialCapacity = 5) {
       state: 'waiting',
       color: getRandomColor(),
       name,
+      joinedQueueAt: Date.now(),
     };
 
     toast.info(`${name} joined the queue`, { duration: 1000 });
@@ -195,7 +238,7 @@ export function useSimulation(initialCapacity = 5) {
 
   const removeCarFromSlot = useCallback((slotIndex: number) => {
     setState(prev => {
-      const { parkedCars, semaphores, chaosMode } = prev;
+      const { parkedCars, semaphores, chaosMode, stats } = prev;
       
       const carToRemove = parkedCars.find(c => c.slotIndex === slotIndex);
       if (!carToRemove) return prev;
@@ -225,6 +268,10 @@ export function useSimulation(initialCapacity = 5) {
           mutex: 1,
           empty: semaphores.empty + 1,
           full: semaphores.full - 1,
+        },
+        stats: {
+          ...stats,
+          totalCarsExited: stats.totalCarsExited + 1,
         },
       };
     });
@@ -293,6 +340,7 @@ export function useSimulation(initialCapacity = 5) {
       speed: prev.speed,
       chaosMode: prev.chaosMode,
       stepMode: prev.stepMode,
+      stats: { ...initialStats },
     }));
   }, []);
 

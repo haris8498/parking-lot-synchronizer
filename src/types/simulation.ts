@@ -6,6 +6,8 @@ export interface Car {
   slotIndex?: number;
   color: string;
   name?: string;
+  joinedQueueAt?: number;
+  parkedAt?: number;
 }
 
 export interface Semaphores {
@@ -23,6 +25,16 @@ export interface SimulationEvent {
   blocked?: boolean;
 }
 
+export interface SimulationStats {
+  totalCarsParked: number;
+  totalCarsExited: number;
+  totalBlockingEvents: number;
+  totalWaitTime: number;
+  carsWithWaitTime: number;
+  peakOccupancy: number;
+  chaosCollisions: number;
+}
+
 export interface SimulationState {
   cars: Car[];
   parkedCars: Car[];
@@ -35,4 +47,5 @@ export interface SimulationState {
   speed: number;
   chaosMode: boolean;
   stepMode: boolean;
+  stats: SimulationStats;
 }
