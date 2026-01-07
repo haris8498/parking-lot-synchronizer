@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import { Car } from '@/types/simulation';
 import { CarComponent } from './Car';
 import { ParkingSquare, MousePointerClick } from 'lucide-react';
@@ -11,25 +12,40 @@ interface ParkingSlotProps {
   isSelected?: boolean;
 }
 
+const SlotContainer = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { car?: Car; isSelected?: boolean }>(
+  ({ car, isSelected, className, children, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={`
+        relative group
+        w-24 h-28
+        rounded-xl
+        border-2 border-dashed
+        flex flex-col items-center justify-center
+        transition-all duration-500
+        cursor-pointer
+        ${car 
+          ? 'border-success bg-success/10 hover:bg-success/20' 
+          : 'border-muted-foreground/30 bg-secondary/30 hover:border-primary/50 hover:bg-secondary/50'
+        }
+        ${isSelected ? 'ring-2 ring-primary' : ''}
+        ${className || ''}
+      `}
+      {...props}
+    >
+      {children}
+    </div>
+  )
+);
+SlotContainer.displayName = 'SlotContainer';
+
 export function ParkingSlot({ index, car, onRemoveCar, onSelectCar, isSelected }: ParkingSlotProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div
-          className={`
-            relative group
-            w-24 h-28
-            rounded-xl
-            border-2 border-dashed
-            flex flex-col items-center justify-center
-            transition-all duration-500
-            cursor-pointer
-            ${car 
-              ? 'border-success bg-success/10 hover:bg-success/20' 
-              : 'border-muted-foreground/30 bg-secondary/30 hover:border-primary/50 hover:bg-secondary/50'
-            }
-            ${isSelected ? 'ring-2 ring-primary' : ''}
-          `}
+        <SlotContainer
+          car={car}
+          isSelected={isSelected}
           onClick={() => {
             if (car && onRemoveCar) {
               onRemoveCar();
@@ -63,7 +79,7 @@ export function ParkingSlot({ index, car, onRemoveCar, onSelectCar, isSelected }
               <span className="text-[9px] text-success">Click to exit</span>
             </div>
           )}
-        </div>
+        </SlotContainer>
       </TooltipTrigger>
       <TooltipContent>
         {car ? `Click to remove ${car.name}` : 'Empty slot'}
