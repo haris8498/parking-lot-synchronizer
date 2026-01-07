@@ -84,8 +84,13 @@ export function useSimulation(initialCapacity = 5) {
       
       if (chaosMode) {
         // In chaos mode, cars try to park without proper synchronization
-        if (parkedCars.length < capacity) {
-          const slotIndex = parkedCars.length;
+        const occupiedSlots = new Set(parkedCars.map(c => c.slotIndex));
+        let slotIndex = 0;
+        while (occupiedSlots.has(slotIndex) && slotIndex < capacity) {
+          slotIndex++;
+        }
+        
+        if (slotIndex < capacity) {
           const updatedCar: Car = { ...nextCar, state: 'parked', slotIndex };
           toast.success(`${nextCar.name} parked (CHAOS!)`, { duration: 1500 });
           
@@ -96,43 +101,54 @@ export function useSimulation(initialCapacity = 5) {
           };
         } else {
           // Race condition - car tries to park but slot is taken!
-          toast.error(`Race condition! ${nextCar.name} crashed!`, { duration: 2000 });
+          const blockedCar: Car = { ...nextCar, state: 'blocked' };
+          toast.error(`${nextCar.name} crashed into occupied slot!`, { duration: 2000 });
+          return {
+            ...prev,
+            waitingCars: [blockedCar, ...waitingCars.slice(1)],
+          };
         }
-        return prev;
       }
 
-      // Proper semaphore logic
-      if (semaphores.empty <= 0) {
-        // No slots available, car stays blocked
+      // Check if there are available slots
+      const availableSlots = semaphores.empty;
+      
+      if (availableSlots <= 0) {
+        // No slots available, car stays/becomes blocked
         if (nextCar.state !== 'blocked') {
           addEvent('wait', 'empty', nextCar.id, true);
           toast.warning(`${nextCar.name} blocked - parking full!`, { duration: 1500 });
-          const updatedWaiting = waitingCars.map((c, i) => 
-            i === 0 ? { ...c, state: 'blocked' as CarState } : c
-          );
-          processingRef.current = false;
-          return { ...prev, waitingCars: updatedWaiting };
         }
+        // Mark first car as blocked, keep others as waiting
+        const updatedWaiting = waitingCars.map((c, i) => 
+          i === 0 ? { ...c, state: 'blocked' as CarState } : c
+        );
         processingRef.current = false;
-        return prev;
+        return { ...prev, waitingCars: updatedWaiting };
+      }
+
+      // Slots available - if car was blocked, it can now proceed
+      if (nextCar.state === 'blocked') {
+        toast.success(`${nextCar.name} unblocked - slot available!`, { duration: 1500 });
       }
 
       // wait(empty) - decrement empty
       addEvent('wait', 'empty', nextCar.id);
       
       // wait(mutex) - acquire lock
-      if (semaphores.mutex <= 0) {
-        addEvent('wait', 'mutex', nextCar.id, true);
-        processingRef.current = false;
-        return prev;
-      }
       addEvent('wait', 'mutex', nextCar.id);
 
       // Find available slot
       const occupiedSlots = new Set(parkedCars.map(c => c.slotIndex));
       let slotIndex = 0;
-      while (occupiedSlots.has(slotIndex)) {
+      while (occupiedSlots.has(slotIndex) && slotIndex < capacity) {
         slotIndex++;
+      }
+
+      if (slotIndex >= capacity) {
+        // Safety check - should not happen with proper semaphore logic
+        processingRef.current = false;
+        return prev;
       }
 
       const updatedCar: Car = { ...nextCar, state: 'parked', slotIndex };
@@ -151,8 +167,8 @@ export function useSimulation(initialCapacity = 5) {
         parkedCars: [...parkedCars, updatedCar],
         semaphores: {
           mutex: 1,
-          empty: semaphores.empty - 1,
-          full: semaphores.full + 1,
+          empty: Math.max(0, semaphores.empty - 1),
+          full: Math.min(capacity, semaphores.full + 1),
         },
       };
     });
@@ -285,14 +301,19 @@ export function useSimulation(initialCapacity = 5) {
   }, []);
 
   const setCapacity = useCallback((capacity: number) => {
-    setState(prev => ({
-      ...prev,
-      capacity,
-      semaphores: {
-        ...prev.semaphores,
-        empty: capacity - prev.parkedCars.length,
-      },
-    }));
+    setState(prev => {
+      const newEmpty = Math.max(0, capacity - prev.parkedCars.length);
+      const newFull = Math.min(capacity, prev.parkedCars.length);
+      return {
+        ...prev,
+        capacity,
+        semaphores: {
+          ...prev.semaphores,
+          empty: newEmpty,
+          full: newFull,
+        },
+      };
+    });
   }, []);
 
   const toggleChaosMode = useCallback(() => {

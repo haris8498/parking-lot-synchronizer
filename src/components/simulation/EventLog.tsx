@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import { SimulationEvent } from '@/types/simulation';
 import { ArrowDown, ArrowUp, AlertCircle } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -6,7 +7,7 @@ interface EventLogProps {
   events: SimulationEvent[];
 }
 
-export function EventLog({ events }: EventLogProps) {
+export const EventLog = forwardRef<HTMLDivElement, EventLogProps>(function EventLog({ events }, ref) {
   const getEventIcon = (event: SimulationEvent) => {
     if (event.blocked) return <AlertCircle className="w-3 h-3 text-destructive" />;
     if (event.type === 'wait') return <ArrowDown className="w-3 h-3 text-warning" />;
@@ -29,7 +30,7 @@ export function EventLog({ events }: EventLogProps) {
   };
 
   return (
-    <div className="glass-panel p-4 rounded-xl h-full">
+    <div ref={ref} className="glass-panel p-4 rounded-xl h-full">
       <h3 className="text-sm font-semibold text-foreground mb-3">Event Log</h3>
       
       <ScrollArea className="h-[280px] pr-2">
@@ -59,4 +60,4 @@ export function EventLog({ events }: EventLogProps) {
       </ScrollArea>
     </div>
   );
-}
+});
